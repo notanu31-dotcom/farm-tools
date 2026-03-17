@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>農薬希釈計算</title>
+
+<style>
+*{
+  box-sizing:border-box;
+}
+
+body{
+  font-family:Arial, sans-serif;
+  background:#f4f7f6;
+  margin:0;
+  padding:12px;
+}
+
+.container{
+  background:#fff;
+  max-width:420px;
+  margin:0 auto;
+  padding:16px;
+  border-radius:12px;
+  box-shadow:0 0 10px rgba(0,0,0,0.08);
+}
+
+h2{
+  text-align:center;
+  margin-top:0;
+  margin-bottom:16px;
+}
+
+label{
+  display:block;
+  margin-top:12px;
+  margin-bottom:4px;
+  font-weight:bold;
+}
+
+input, select{
+  width:100%;
+  padding:10px;
+  border:1px solid #ccc;
+  border-radius:6px;
+  font-size:16px;
+}
+
+button{
+  width:100%;
+  padding:11px;
+  margin-top:8px;
+  border:none;
+  border-radius:6px;
+  background:#2c7;
+  color:#fff;
+  font-size:15px;
+  cursor:pointer;
+}
+
+button:hover{
+  opacity:0.95;
+}
+
+.danger{
+  background:#d33;
+}
+
+.row{
+  display:flex;
+  gap:6px;
+}
+
+.row input{
+  flex:1;
+}
+
+.row button{
+  width:84px;
+  flex-shrink:0;
+}
+
+.preset-group{
+  display:flex;
+  gap:6px;
+  margin-top:8px;
+}
+
+.preset-group button{
+  flex:1;
+  margin-top:0;
+  padding:10px 6px;
+  font-size:14px;
+}
+
+.result{
+  margin-top:16px;
+  padding:12px;
+  border-radius:8px;
+  background:#f8fbfa;
+  text-align:center;
+  font-size:18px;
+  line-height:1.6;
+  min-height:40px;
+}
+
+.note{
+  font-size:12px;
+  color:#666;
+  margin-top:6px;
+}
+
+.history{
+  margin-top:20px;
+}
+
+.history h3{
+  margin-bottom:8px;
+}
+
+.item{
+  border-bottom:1px solid #ddd;
+  padding:8px 0;
+  font-size:14px;
+  line-height:1.5;
+}
+
+.badge{
+  display:inline-block;
+  margin-left:6px;
+  padding:2px 6px;
+  border-radius:999px;
+  background:#f90;
+  color:#fff;
+  font-size:12px;
+  vertical-align:middle;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h2>
+    農薬希釈計算
+    <span id="badge"></span>
+  </h2>
+
+  <label for="field">圃場</label>
+  <select id="field"></select>
+
+  <input id="fieldEdit" type="text" placeholder="圃場名変更">
+  <button onclick="renameField()">圃場名を変更</button>
+
+  <div class="row">
+    <input id="newField" type="text" placeholder="圃場追加">
+    <button onclick="addField()">追加</button>
+  </div>
+
+  <div class="note" id="fieldNote"></div>
+  <button class="danger" onclick="resetFields()">圃場初期化</button>
+
+  <label for="name">薬剤名</label>
+  <input id="name" type="text" placeholder="例：ダコニール">
+
+  <label for="tank">タンク容量（L）</label>
+  <input id="tank" type="number" placeholder="例：500">
+  <div class="preset-group">
+    <button type="button" onclick="setTank(200)">200L</button>
+    <button type="button" onclick="setTank(500)">500L</button>
+    <button type="button" onclick="setTank(1000)">1000L</button>
+  </div>
+
+  <label for="ratio">希釈倍率</label>
+  <input id="ratio" type="number" placeholder="例：1000">
+  <div class="preset-group">
+    <button type="button" onclick="setRatio(1000)">1000倍</button>
+    <button type="button" onclick="setRatio(2000)">2000倍</button>
+    <button type="button" onclick="setRatio(3000)">3000倍</button>
+  </div>
+
+  <button onclick="calc()">計算</button>
+
+  <div class="result" id="result"></div>
+
+  <div class="history">
+    <h3>履歴</h3>
+    <button class="danger" onclick="clearHistory()">履歴リセット</button>
+    <div id="historyList"></div>
+    <div class="note" id="historyNote"></div>
+  </div>
+</div>
+
+<script>
+const IS_PREMIUM = false;
+
+const MAX_HISTORY = IS_PREMIUM ? 100 : 10;
+const MAX_FIELDS = IS_PREMIUM ? 999 : 3;
+
+const DEFAULT_FIELDS = ["畑A", "畑B", "畑C"];
+const HKEY = "history";
+const FKEY = "fields";
+
+window.onload = () => {
+  initUI();
+  loadFields();
+  loadHistory();
+};
+
+function initUI(){
+  if(IS_PREMIUM){
+    document.getElementById("badge").innerHTML = '<span class="badge">PRO</span>';
+    document.getElementById("fieldNote").innerText = "圃場を自由に追加できます";
+    document.getElementById("historyNote").innerText = "多くの履歴を保存できます";
+  }else{
+    document.getElementById("fieldNote").innerText = "圃場は3件まで";
+    document.getElementById("historyNote").innerText = "最新の記録を保持します";
+  }
+}
+
+function loadFields(){
+  let fields = JSON.parse(localStorage.getItem(FKEY)) || DEFAULT_FIELDS;
+  const select = document.getElementById("field");
+  select.innerHTML = "";
+
+  fields.forEach(field => {
+    const option = document.createElement("option");
+    option.text = field;
+    select.add(option);
+  });
+
+  localStorage.setItem(FKEY, JSON.stringify(fields));
+}
+
+function addField(){
+  const fields = JSON.parse(localStorage.getItem(FKEY)) || [...DEFAULT_FIELDS];
+  const value = document.getElementById("newField").value.trim();
+
+  if(!value) return;
+
+  if(fields.length >= MAX_FIELDS){
+    alert("これ以上追加できません");
+    return;
+  }
+
+  fields.push(value);
+  localStorage.setItem(FKEY, JSON.stringify(fields));
+  document.getElementById("newField").value = "";
+  loadFields();
+}
+
+function renameField(){
+  const select = document.getElementById("field");
+  const index = select.selectedIndex;
+  const value = document.getElementById("fieldEdit").value.trim();
+
+  if(!value) return;
+
+  const fields = JSON.parse(localStorage.getItem(FKEY)) || [...DEFAULT_FIELDS];
+  fields[index] = value;
+  localStorage.setItem(FKEY, JSON.stringify(fields));
+  document.getElementById("fieldEdit").value = "";
+  loadFields();
+}
+
+function resetFields(){
+  if(!confirm("圃場を初期状態に戻しますか？")) return;
+  localStorage.setItem(FKEY, JSON.stringify(DEFAULT_FIELDS));
+  loadFields();
+}
+
+function setTank(value){
+  document.getElementById("tank").value = value;
+}
+
+function setRatio(value){
+  document.getElementById("ratio").value = value;
+}
+
+function calc(){
+  const field = document.getElementById("field").value;
+  const name = document.getElementById("name").value.trim() || "未入力";
+  const tank = Number(document.getElementById("tank").value);
+  const ratio = Number(document.getElementById("ratio").value);
+
+  if(!tank || !ratio || tank <= 0 || ratio <= 0){
+    alert("タンク容量と希釈倍率を正しく入力してください");
+    return;
+  }
+
+  const ml = tank / ratio * 1000;
+  const L = ml / 1000;
+
+  document.getElementById("result").innerHTML = `
+    <strong>${field}</strong><br>
+    ${name}<br>
+    <strong>${ml.toFixed(1)} ml</strong><br>
+    (${L.toFixed(3)} L)
+  `;
+
+  save(field, name, tank, ratio, ml);
+}
+
+function save(field, name, tank, ratio, p){
+  const history = JSON.parse(localStorage.getItem(HKEY)) || [];
+
+  history.unshift({
+    field,
+    name,
+    tank,
+    ratio,
+    p: p.toFixed(1),
+    date: new Date().toLocaleString()
+  });
+
+  if(history.length > MAX_HISTORY){
+    history.pop();
+  }
+
+  localStorage.setItem(HKEY, JSON.stringify(history));
+  loadHistory();
+}
+
+function loadHistory(){
+  const history = JSON.parse(localStorage.getItem(HKEY)) || [];
+  const list = document.getElementById("historyList");
+  list.innerHTML = "";
+
+  history.forEach(item => {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.innerHTML = `
+      <strong>${item.field}</strong> / ${item.name}<br>
+      ${item.date}<br>
+      ${item.tank}L / ${item.ratio}倍 → ${item.p}ml
+    `;
+    list.appendChild(div);
+  });
+}
+
+function clearHistory(){
+  if(!confirm("履歴を削除しますか？")) return;
+  localStorage.removeItem(HKEY);
+  loadHistory();
+}
+</script>
+
+</body>
+</html>
