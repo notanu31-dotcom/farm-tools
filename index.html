@@ -189,6 +189,46 @@
       padding: 12px;
     }
 
+    .checklist-box {
+      background: #f8fbf8;
+      border: 1px solid #d7e4d8;
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .check-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #e8eeea;
+    }
+
+    .check-item:last-child {
+      border-bottom: none;
+    }
+
+    .check-item input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      margin-top: 2px;
+      margin-bottom: 0;
+      flex-shrink: 0;
+    }
+
+    .check-item label {
+      margin: 0;
+      font-weight: 500;
+      line-height: 1.5;
+      cursor: pointer;
+    }
+
+    .check-status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #666;
+    }
+
     @media (max-width: 560px) {
       .row {
         grid-template-columns: 1fr;
@@ -263,6 +303,37 @@
     </div>
 
     <div class="card">
+      <h2>防除前チェック</h2>
+      <div class="checklist-box" id="checklistBox">
+        <div class="check-item">
+          <input type="checkbox" class="precheck" id="check1" value="作物・園場を確認した" />
+          <label for="check1">作物・園場を確認した</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" class="precheck" id="check2" value="薬剤名と有効期限を確認した" />
+          <label for="check2">薬剤名と有効期限を確認した</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" class="precheck" id="check3" value="希釈倍率を確認した" />
+          <label for="check3">希釈倍率を確認した</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" class="precheck" id="check4" value="必要な保護具を確認した" />
+          <label for="check4">必要な保護具を確認した</label>
+        </div>
+        <div class="check-item">
+          <input type="checkbox" class="precheck" id="check5" value="記録内容を確認した" />
+          <label for="check5">記録内容を確認した</label>
+        </div>
+      </div>
+      <p class="check-status" id="checkStatus">チェック状況：0 / 5</p>
+      <div class="btn-row">
+        <button id="clearChecksBtn" class="light" type="button">チェックを外す</button>
+      </div>
+      <p class="small">履歴保存するには、すべての項目にチェックが必要です。</p>
+    </div>
+
+    <div class="card">
       <h2>データ管理</h2>
       <div class="btn-row">
         <button id="csvBtn" type="button">CSV書き出し</button>
@@ -295,7 +366,7 @@
     const DEFAULT_FIELDS = ["畑A", "畑B", "畑C"];
 
     const STORAGE_KEYS = {
-      history: "nouyaku_history_v2",
+      history: "nouyaku_history_v3",
       fields: "nouyaku_fields_v2"
     };
 
@@ -326,6 +397,9 @@
 
     const historyList = document.getElementById("historyList");
 
+    const clearChecksBtn = document.getElementById("clearChecksBtn");
+    const checkStatus = document.getElementById("checkStatus");
+
     // =========================
     // 状態
     // =========================
@@ -343,6 +417,8 @@
       renderHistory();
       renderHistoryRefButtons();
       bindPresetButtons();
+      bindPrecheckEvents();
+      updateCheckStatus();
       updateResult();
     }
 
@@ -462,6 +538,7 @@
         });
         saveHistory();
         renderHistory();
+        renderHistoryRefButtons();
       }
     });
 
@@ -522,9 +599,49 @@
     }
 
     // =========================
+    // 防除前チェック
+    // =========================
+    function getAllPrechecks() {
+      return Array.from(document.querySelectorAll(".precheck")).map((el) => el.value);
+    }
+
+    function getCheckedPrechecks() {
+      return Array.from(document.querySelectorAll(".precheck:checked")).map((el) => el.value);
+    }
+
+    function clearPrechecks() {
+      document.querySelectorAll(".precheck").forEach((el) => {
+        el.checked = false;
+      });
+      updateCheckStatus();
+    }
+
+    function updateCheckStatus() {
+      const checked = getCheckedPrechecks().length;
+      const total = getAllPrechecks().length;
+      checkStatus.textContent = `チェック状況：${checked} / ${total}`;
+    }
+
+    function bindPrecheckEvents() {
+      document.querySelectorAll(".precheck").forEach((el) => {
+        el.addEventListener("change", updateCheckStatus);
+      });
+
+      clearChecksBtn.addEventListener("click", clearPrechecks);
+    }
+
+    // =========================
     // 履歴保存
     // =========================
     saveBtn.addEventListener("click", () => {
+      const checkedPrechecks = getCheckedPrechecks();
+      const allPrechecks = getAllPrechecks();
+
+      if (checkedPrechecks.length !== allPrechecks.length) {
+        alert("防除前チェックが未完了です。すべて確認してから保存してください。");
+        return;
+      }
+
       const field = fieldSelect.value;
       const name = itemName.value.trim();
       const tankVal = Number(tank.value);
@@ -553,7 +670,8 @@
         tank: tankVal,
         ratio: ratioVal,
         amountMl: Number(amountMl.toFixed(1)),
-        amountL: Number(amountL.toFixed(3))
+        amountL: Number(amountL.toFixed(3)),
+        checks: checkedPrechecks
       };
 
       historyData.unshift(record);
@@ -564,6 +682,7 @@
       saveHistory();
       renderHistory();
       renderHistoryRefButtons();
+      clearPrechecks();
       alert("履歴を保存しました。");
     });
 
@@ -593,6 +712,10 @@
 
             <div class="history-meta">
               薬量：${item.amountMl} ml / ${item.amountL} L
+            </div>
+
+            <div class="history-meta" style="margin-top:6px;">
+              防除前チェック：${item.checks && item.checks.length > 0 ? escapeHtml(item.checks.join(" / ")) : "なし"}
             </div>
 
             <div class="history-actions">
@@ -642,6 +765,15 @@
         fieldSelect.value = item.field;
       }
 
+      clearPrechecks();
+
+      if (Array.isArray(item.checks)) {
+        document.querySelectorAll(".precheck").forEach((checkbox) => {
+          checkbox.checked = item.checks.includes(checkbox.value);
+        });
+      }
+
+      updateCheckStatus();
       updateResult();
       window.scrollTo({ top: 0, behavior: "smooth" });
     };
@@ -715,6 +847,7 @@
           renderFields();
           renderHistory();
           renderHistoryRefButtons();
+          clearPrechecks();
           alert("復元しました。");
         } catch (err) {
           alert("復元に失敗しました。JSONファイルを確認してください。");
@@ -730,7 +863,7 @@
       }
 
       const rows = [
-        ["日付", "園場", "作物・薬剤名", "タンク容量(L)", "希釈倍率", "薬量(ml)", "薬量(L)"],
+        ["日付", "園場", "作物・薬剤名", "タンク容量(L)", "希釈倍率", "薬量(ml)", "薬量(L)", "防除前チェック"],
         ...historyData.map(item => [
           item.date,
           item.field,
@@ -738,7 +871,8 @@
           item.tank,
           item.ratio,
           item.amountMl,
-          item.amountL
+          item.amountL,
+          Array.isArray(item.checks) ? item.checks.join(" / ") : ""
         ])
       ];
 
@@ -760,7 +894,7 @@
       }
 
       const rows = [
-        ["日付", "園場", "作物・薬剤名", "タンク容量(L)", "希釈倍率", "薬量(ml)", "薬量(L)"],
+        ["日付", "園場", "作物・薬剤名", "タンク容量(L)", "希釈倍率", "薬量(ml)", "薬量(L)", "防除前チェック"],
         ...filtered.map(item => [
           item.date,
           item.field,
@@ -768,7 +902,8 @@
           item.tank,
           item.ratio,
           item.amountMl,
-          item.amountL
+          item.amountL,
+          Array.isArray(item.checks) ? item.checks.join(" / ") : ""
         ])
       ];
 
