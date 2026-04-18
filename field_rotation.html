@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="圃場管理">
+<title>🗺️ 圃場台帳・輪作管理</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: #f2f7f1; font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif; }
+  input, select, button { font-family: inherit; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback } = React;
+
+const CROP_FAMILIES = {
+  "小麦":       { family:"イネ科",       color:"#c8a040", bg:"#fdf8e8", icon:"🌾" },
+  "大豆":       { family:"マメ科",       color:"#5a8a30", bg:"#f0f8e8", icon:"🫘" },
+  "小豆":       { family:"マメ科",       color:"#8a3030", bg:"#f8e8e8", icon:"🫘" },
+  "ブロッコリー":{ family:"アブラナ科",  color:"#2a7a50", bg:"#e8f8f0", icon:"🥦" },
+  "キャベツ":   { family:"アブラナ科",   color:"#3a9a40", bg:"#e8fae8", icon:"🥬" },
+  "大根":       { family:"アブラナ科",   color:"#a0a0a0", bg:"#f8f8f8", icon:"🥕" },
+  "長ネギ":     { family:"ヒガンバナ科", color:"#a0a020", bg:"#f8f8e0", icon:"🧅" },
+  "かぼちゃ":   { family:"ウリ科",       color:"#c05010", bg:"#fdf0e0", icon:"🎃" },
+  "スイートコーン":{ family:"イネ科",    color:"#d4a020", bg:"#fdf8e0", icon:"🌽" },
+  "じゃがいも": { family:"ナス科",       color:"#a08060", bg:"#f8f4e8", icon:"🥔" },
+  "てん菜":     { family:"ヒユ科",       color:"#b040a0", bg:"#f8e8f8", icon:"🌱" },
+  "人参":       { family:"セリ科",       color:"#e06020", bg:"#fdf0e0", icon:"🥕" },
+  "休耕":       { family:"なし",         color:"#888888", bg:"#f4f4f4", icon:"🌿" },
+};
+
+const ROTATION_RULES = {
+  "アブラナ科":  3,
+  "マメ科":      3,
+  "ナス科":      4,
+  "ウリ科":      3,
+  "セリ科":      3,
+  "ヒユ科":      2,
+  "イネ科":      2,
+  "ヒガンバナ科":2,
+  "なし":        0,
+};
+
+const GOOD_PREV = {
+  "ブロッコリー": ["小麦","大豆","長ネギ"],
+  "長ネギ":       ["小麦","大豆","ブロッコリー"],
+  "小麦":         ["大豆","小豆","てん菜","長ネギ"],
+  "大豆":         ["小麦","ブロッコリー","てん菜"],
+  "かぼちゃ":     ["小麦","大豆"],
+};
+
+const CURRENT_YEAR = 2026;
+const YEARS = [CURRENT_YEAR-3, CURRENT_YEAR-2, CURRENT_YEAR-1, CURRENT_YEAR];
+const CROP_LIST = Object.keys(CROP_FAMILIES);
+
+const DEFAULT_FIELDS = [
+  { id:1, name:"第1圃場", area:30, shape:"長方形", note:"",
+    history:{[CURRENT_YEAR-3]:"小麦",[CURRENT_YEAR-2]:"大豆",[CURRENT_YEAR-1]:"ブロッコリー",[CURRENT_YEAR]:""} },
+  { id:2, name:"第2圃場", area:45, shape:"長方形", note:"",
+    history:{[CURRENT_YEAR-3]:"大豆",[CURRENT_YEAR-2]:"小麦",[CURRENT_YEAR-1]:"大豆",[CURRENT_YEAR]:""} },
+  { id:3, name:"第3圃場", area:25, shape:"三角形", note:"北東角が狭い",
+    history:{[CURRENT_YEAR-3]:"ブロッコリー",[CURRENT_YEAR-2]:"小麦",[CURRENT_YEAR-1]:"大豆",[CURRENT_YEAR]:""} },
+  { id:4, name:"第4圃場", area:20, shape:"長方形", note:"電波塔あり（南端5a）",
+    history:{[CURRENT_YEAR-3]:"小麦",[CURRENT_YEAR-2]:"小麦",[CURRENT_YEAR-1]:"小麦",[CURRENT_YEAR]:""} },
+  { id:5, name:"第5圃場", area:35, shape:"長方形", note:"",
+    history:{[CURRENT_YEAR-3]:"大豆",[CURRENT_YEAR-2]:"ブロッコリー",[CURRENT_YEAR-1]:"小麦",[CURRENT_YEAR]:""} },
+];
+
+function checkRotation(field, targetYear) {
+  const warnings = [], suggestions = [];
+  const targetCrop = field.history[targetYear];
+  if (!targetCrop) return { warnings:[], suggestions:[], ok:true };
+  const targetFamily = CROP_FAMILIES[targetCrop]?.family;
+  if (!targetFamily || targetFamily==="なし") return { warnings:[], suggestions:[], ok:true };
+  const interval = ROTATION_RULES[targetFamily] || 0;
+  for (let i=1; i<=interval; i++) {
+    const prevCrop = field.history[targetYear-i];
+    if (!prevCrop) continue;
+    if (CROP_FAMILIES[prevCrop]?.family===targetFamily)
+      warnings.push(`${targetYear-i}年に${prevCrop}（同じ${targetFamily}）を作付け。${interval}年間隔が必要です。`);
+  }
+  const prevCrop = field.history[targetYear-1];
+  if (prevCrop && (GOOD_PREV[targetCrop]||[]).includes(prevCrop))
+    suggestions.push(`✓ 前作「${prevCrop}」との相性は良好です`);
+  return { warnings, suggestions, ok:warnings.length===0 };
+}
+
+function getRecommendations(field) {
+  return CROP_LIST.filter(crop => crop!=="休耕").reduce((recs, crop) => {
+    const family = CROP_FAMILIES[crop]?.family;
+    if (!family || family==="なし") return recs;
+    const interval = ROTATION_RULES[family]||0;
+    let ok = true;
+    for (let i=1; i<=interval; i++) {
+      const p = field.history[CURRENT_YEAR-i];
+      if (p && CROP_FAMILIES[p]?.family===family) { ok=false; break; }
+    }
+    if (ok) {
+      const prev = field.history[CURRENT_YEAR-1];
+      recs.push({ crop, isGood:!!(prev&&(GOOD_PREV[crop]||[]).includes(prev)), family });
+    }
+    return recs;
+  }, []).sort((a,b) => (b.isGood?1:0)-(a.isGood?1:0));
+}
+
+function CropBadge({ crop }) {
+  if (!crop) return <span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,background:"#eee",color:"#999",fontSize:11}}>未定</span>;
+  const info = CROP_FAMILIES[crop]||{color:"#888",bg:"#eee",icon:"🌱"};
+  return (
+    <span style={{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 8px",borderRadius:20,
+      background:info.bg,color:info.color,fontSize:11,fontWeight:"bold",border:`1px solid ${info.color}40`}}>
+      {info.icon} {crop}
+    </span>
+  );
+}
+
+function FieldCard({ field, onUpdate, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const check = checkRotation(field, CURRENT_YEAR);
+  const recs = getRecommendations(field);
+  const cur = field.history[CURRENT_YEAR];
+  const hasWarn = check.warnings.length>0;
+
+  return (
+    <div style={{background:"#fff",borderRadius:14,marginBottom:10,overflow:"hidden",
+      border:hasWarn&&cur?"2px solid #e06020":"2px solid #e0eedc",
+      boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
+      <div onClick={()=>setOpen(!open)} style={{padding:"12px 14px",cursor:"pointer",display:"flex",alignItems:"center",gap:10}}>
+        <div style={{width:36,height:36,borderRadius:10,flexShrink:0,
+          background:hasWarn&&cur?"#fdf0e8":"#f0f8ec",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>
+          {field.shape==="三角形"?"△":field.shape==="L字形"?"⌐":"□"}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:"bold",fontSize:15,color:"#1a3a17"}}>{field.name}</div>
+          <div style={{fontSize:11,color:"#888",marginTop:1}}>
+            {field.area}a ({(field.area/10).toFixed(1)}ha)
+            {field.note&&<span style={{marginLeft:6,color:"#c06020"}}>⚠ {field.note}</span>}
+          </div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <CropBadge crop={cur} />
+          {hasWarn&&cur&&<div style={{fontSize:10,color:"#e06020",marginTop:2}}>⚠ 連作警告</div>}
+        </div>
+        <div style={{color:"#aaa",fontSize:12}}>{open?"▲":"▼"}</div>
+      </div>
+
+      {open && (
+        <div style={{borderTop:"1px solid #f0f4ee",padding:"12px 14px"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
+            {[
+              {label:"圃場名",  el:<input value={field.name} onChange={e=>onUpdate({...field,name:e.target.value})} style={{width:"100%",padding:"6px 8px",border:"1px solid #d0e8c8",borderRadius:6,fontSize:13,boxSizing:"border-box"}} />},
+              {label:"面積(a)", el:<input type="number" value={field.area} min={1} onChange={e=>onUpdate({...field,area:Number(e.target.value)})} style={{width:"100%",padding:"6px 8px",border:"1px solid #d0e8c8",borderRadius:6,fontSize:13,boxSizing:"border-box"}} />},
+              {label:"形状",    el:<select value={field.shape} onChange={e=>onUpdate({...field,shape:e.target.value})} style={{width:"100%",padding:"6px 8px",border:"1px solid #d0e8c8",borderRadius:6,fontSize:13,boxSizing:"border-box"}}>
+                {["長方形","正方形","三角形","L字形","台形","不整形"].map(s=><option key={s}>{s}</option>)}
+              </select>},
+              {label:"備考（障害物）", el:<input value={field.note} onChange={e=>onUpdate({...field,note:e.target.value})} placeholder="例：電波塔、水路" style={{width:"100%",padding:"6px 8px",border:"1px solid #d0e8c8",borderRadius:6,fontSize:13,boxSizing:"border-box"}} />},
+            ].map(({label,el})=>(
+              <div key={label}><div style={{fontSize:11,color:"#888",marginBottom:3}}>{label}</div>{el}</div>
+            ))}
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:12,fontWeight:"bold",color:"#2d5a27",marginBottom:8}}>作物履歴</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+              {YEARS.map(year=>{
+                const isCur=year===CURRENT_YEAR;
+                const yc=isCur?check:checkRotation(field,year);
+                const prob=yc.warnings.length>0&&field.history[year];
+                return (
+                  <div key={year} style={{background:isCur?"#f0f8ec":"#fafafa",borderRadius:8,padding:"8px 6px",
+                    border:`1px solid ${prob?"#e06020":isCur?"#b0d8a0":"#e8e8e8"}`}}>
+                    <div style={{fontSize:10,fontWeight:"bold",marginBottom:4,textAlign:"center",color:isCur?"#2d5a27":"#888"}}>
+                      {year}{isCur?"（今年）":""}
+                    </div>
+                    <select value={field.history[year]||""}
+                      onChange={e=>onUpdate({...field,history:{...field.history,[year]:e.target.value}})}
+                      style={{width:"100%",padding:"4px 2px",fontSize:11,borderRadius:4,
+                        border:`1px solid ${prob?"#e06020":"#d0d0d0"}`,
+                        background:prob?"#fff8f4":"#fff",color:prob?"#c04010":"#333"}}>
+                      <option value="">未定</option>
+                      {CROP_LIST.map(c=><option key={c} value={c}>{CROP_FAMILIES[c]?.icon} {c}</option>)}
+                    </select>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {hasWarn&&cur&&(
+            <div style={{background:"#fff8f0",border:"1px solid #e06020",borderRadius:8,padding:"10px 12px",marginBottom:10}}>
+              <div style={{fontSize:12,fontWeight:"bold",color:"#c04010",marginBottom:4}}>⚠️ 連作警告</div>
+              {check.warnings.map((w,i)=><div key={i} style={{fontSize:12,color:"#c04010"}}>• {w}</div>)}
+            </div>
+          )}
+          {check.suggestions.map((s,i)=>(
+            <div key={i} style={{background:"#f0f8ec",border:"1px solid #90c880",borderRadius:8,
+              padding:"6px 12px",marginBottom:4,fontSize:12,color:"#2d5a27"}}>{s}</div>
+          ))}
+
+          <div style={{marginBottom:10}}>
+            <div style={{fontSize:12,fontWeight:"bold",color:"#2d5a27",marginBottom:6}}>今年植えられる作物</div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {recs.slice(0,8).map(({crop,isGood})=>(
+                <button key={crop}
+                  onClick={()=>onUpdate({...field,history:{...field.history,[CURRENT_YEAR]:crop}})}
+                  style={{padding:"4px 10px",borderRadius:20,cursor:"pointer",fontSize:12,
+                    border:`1px solid ${isGood?"#2d5a27":"#c0d0b8"}`,
+                    background:isGood?"#e8f8e0":"#f4f8f2",
+                    color:isGood?"#1a5a17":"#558055",fontWeight:isGood?"bold":"normal"}}>
+                  {CROP_FAMILIES[crop]?.icon} {crop}{isGood?" ★":""}
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:10,color:"#888",marginTop:4}}>★ = 前作との相性が良い</div>
+          </div>
+
+          <button onClick={onDelete}
+            style={{width:"100%",padding:8,background:"none",border:"1px solid #e0c0c0",
+              borderRadius:8,color:"#c06060",cursor:"pointer",fontSize:12}}>
+            この圃場を削除
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function App() {
+  const [fields, setFields] = useState(DEFAULT_FIELDS);
+  const [tab, setTab] = useState("fields");
+  const [nextId, setNextId] = useState(10);
+  const updateField = useCallback((id,u) => setFields(p=>p.map(f=>f.id===id?u:f)),[]);
+
+  const totalArea = fields.reduce((s,f)=>s+f.area,0);
+  const warningCount = fields.filter(f=>checkRotation(f,CURRENT_YEAR).warnings.length>0&&f.history[CURRENT_YEAR]).length;
+  const cropSummary = fields.reduce((acc,f)=>{
+    const c=f.history[CURRENT_YEAR]; if(c) acc[c]=(acc[c]||0)+f.area; return acc;
+  },{});
+
+  return (
+    <div style={{fontFamily:"'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif",background:"#f2f7f1",minHeight:"100vh",maxWidth:480,margin:"0 auto"}}>
+      <div style={{background:"linear-gradient(135deg,#1a3a17 0%,#2d5a27 60%,#3d7a35 100%)",padding:"20px 16px 16px",color:"#fff"}}>
+        <div style={{fontSize:11,letterSpacing:2,opacity:0.7,marginBottom:4}}>農業経営システム</div>
+        <div style={{fontSize:22,fontWeight:"bold",marginBottom:12}}>🗺️ 圃場台帳・輪作管理</div>
+        <div style={{background:"rgba(255,255,255,0.12)",borderRadius:12,padding:12,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
+          <div style={{textAlign:"center"}}><div style={{fontSize:10,opacity:0.7}}>圃場数</div><div style={{fontSize:22,fontWeight:"bold"}}>{fields.length}</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:10,opacity:0.7}}>総面積</div><div style={{fontSize:22,fontWeight:"bold"}}>{(totalArea/10).toFixed(1)}ha</div></div>
+          <div style={{textAlign:"center"}}><div style={{fontSize:10,opacity:0.7}}>連作警告</div>
+            <div style={{fontSize:22,fontWeight:"bold",color:warningCount>0?"#ffb060":"#90ff90"}}>
+              {warningCount>0?`⚠${warningCount}件`:"✓ なし"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{padding:"0 16px"}}>
+        <div style={{display:"flex",borderBottom:"2px solid #2d5a27",margin:"16px 0"}}>
+          {[{id:"fields",label:"📋 圃場一覧"},{id:"rotation",label:"📅 輪作表"},{id:"summary",label:"📊 集計"}].map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)}
+              style={{flex:1,padding:"9px 4px",border:"none",cursor:"pointer",fontWeight:"bold",fontSize:12,
+                background:tab===t.id?"#2d5a27":"transparent",color:tab===t.id?"#fff":"#2d5a27",
+                borderRadius:tab===t.id?"6px 6px 0 0":0}}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab==="fields" && (
+          <div>
+            <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+              <button onClick={()=>{setFields([...fields,{id:nextId,name:`第${fields.length+1}圃場`,area:10,shape:"長方形",note:"",
+                history:{[CURRENT_YEAR-3]:"",[CURRENT_YEAR-2]:"",[CURRENT_YEAR-1]:"",[CURRENT_YEAR]:""}}]);setNextId(nextId+1);}}
+                style={{background:"#2d5a27",color:"#fff",border:"none",borderRadius:20,padding:"8px 16px",fontSize:13,cursor:"pointer",fontWeight:"bold"}}>
+                ＋ 圃場追加
+              </button>
+            </div>
+            {fields.map(f=>(
+              <FieldCard key={f.id} field={f}
+                onUpdate={u=>updateField(f.id,u)}
+                onDelete={()=>setFields(fields.filter(x=>x.id!==f.id))} />
+            ))}
+          </div>
+        )}
+
+        {tab==="rotation" && (
+          <div>
+            <div style={{fontSize:12,color:"#666",marginBottom:12}}>全圃場の作付け履歴。今年（{CURRENT_YEAR}）の列で作物を選択できます。</div>
+            <div style={{overflowX:"auto"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead>
+                  <tr>
+                    <th style={{padding:"8px 6px",background:"#2d5a27",color:"#fff",textAlign:"left",minWidth:70}}>圃場</th>
+                    <th style={{padding:"8px 4px",background:"#2d5a27",color:"#fff",textAlign:"center",minWidth:36}}>面積</th>
+                    {YEARS.map(y=>(
+                      <th key={y} style={{padding:"8px 4px",textAlign:"center",minWidth:68,
+                        background:y===CURRENT_YEAR?"#1a5a17":"#3d7a35",color:"#fff"}}>
+                        {y}{y===CURRENT_YEAR?"★":""}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {fields.map((field,idx)=>{
+                    const chk=checkRotation(field,CURRENT_YEAR);
+                    const hw=chk.warnings.length>0&&field.history[CURRENT_YEAR];
+                    return (
+                      <tr key={field.id} style={{background:idx%2===0?"#f8fdf6":"#fff"}}>
+                        <td style={{padding:6,fontWeight:"bold",color:"#1a3a17",borderBottom:"1px solid #e8f0e4"}}>
+                          {field.name}
+                          {field.note&&<div style={{fontSize:10,color:"#c06020",fontWeight:"normal"}}>⚠ {field.note}</div>}
+                        </td>
+                        <td style={{padding:"6px 4px",textAlign:"center",color:"#666",borderBottom:"1px solid #e8f0e4"}}>{field.area}a</td>
+                        {YEARS.map(year=>{
+                          const crop=field.history[year];
+                          const info=CROP_FAMILIES[crop];
+                          const isCur=year===CURRENT_YEAR;
+                          const warn=isCur&&hw;
+                          return (
+                            <td key={year} style={{padding:4,textAlign:"center",borderBottom:"1px solid #e8f0e4",
+                              background:warn?"#fff8f0":isCur?"#f0f8ec":"transparent"}}>
+                              {isCur?(
+                                <select value={crop||""}
+                                  onChange={e=>updateField(field.id,{...field,history:{...field.history,[year]:e.target.value}})}
+                                  style={{width:"100%",padding:"2px",fontSize:11,borderRadius:4,
+                                    border:`1px solid ${warn?"#e06020":"#c0d8b8"}`,
+                                    background:warn?"#fff8f0":"#f8fff6",color:warn?"#c04010":"#333"}}>
+                                  <option value="">未定</option>
+                                  {CROP_LIST.map(c=><option key={c} value={c}>{CROP_FAMILIES[c]?.icon} {c}</option>)}
+                                </select>
+                              ):(
+                                <span style={{display:"inline-block",padding:"2px 4px",borderRadius:4,
+                                  background:info?.bg||"#f4f4f4",color:info?.color||"#888",fontSize:11}}>
+                                  {info?.icon||""} {crop||"—"}
+                                </span>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {tab==="summary" && (
+          <div>
+            <div style={{background:"#fff",borderRadius:12,padding:14,marginBottom:12,boxShadow:"0 2px 8px rgba(45,90,39,0.08)",border:"1px solid #e0eedc"}}>
+              <div style={{fontSize:13,fontWeight:"bold",color:"#2d5a27",marginBottom:10}}>{CURRENT_YEAR}年 作付け計画サマリー</div>
+              {Object.keys(cropSummary).length===0
+                ? <div style={{color:"#aaa",fontSize:13}}>今年の作付けがまだ未設定です</div>
+                : Object.entries(cropSummary).sort((a,b)=>b[1]-a[1]).map(([crop,area])=>{
+                    const info=CROP_FAMILIES[crop];
+                    const pct=Math.round(area/totalArea*100);
+                    return (
+                      <div key={crop} style={{marginBottom:8}}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                          <span style={{fontSize:13,color:info?.color||"#333"}}>{info?.icon} {crop} <span style={{fontSize:11,color:"#888"}}>（{info?.family}）</span></span>
+                          <span style={{fontSize:13,fontWeight:"bold",color:"#1a3a17"}}>{area}a ({(area/10).toFixed(1)}ha) {pct}%</span>
+                        </div>
+                        <div style={{background:"#e8f0e4",borderRadius:20,height:6,overflow:"hidden"}}>
+                          <div style={{width:`${pct}%`,height:"100%",borderRadius:20,background:info?.color||"#2d5a27"}} />
+                        </div>
+                      </div>
+                    );
+                  })
+              }
+            </div>
+            <div style={{background:"#fff",borderRadius:12,padding:14,boxShadow:"0 2px 8px rgba(45,90,39,0.08)",border:"1px solid #e0eedc"}}>
+              <div style={{fontSize:13,fontWeight:"bold",color:"#2d5a27",marginBottom:10}}>輪作ルール早見表</div>
+              {Object.entries(ROTATION_RULES).filter(([f])=>f!=="なし").map(([family,years])=>(
+                <div key={family} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"6px 0",borderBottom:"1px solid #f0f4ee",fontSize:12}}>
+                  <span style={{color:"#444"}}>{family}</span>
+                  <span style={{padding:"2px 10px",borderRadius:20,fontWeight:"bold",fontSize:11,
+                    background:years>=3?"#fff0f0":years>=2?"#fff8e8":"#f0f8e8",
+                    color:years>=3?"#c04020":years>=2?"#a07010":"#2d5a27"}}>
+                    {years}年間隔必要
+                  </span>
+                </div>
+              ))}
+              <div style={{fontSize:11,color:"#888",marginTop:8,lineHeight:1.6}}>
+                ※ 小麦（イネ科）は2年連続まで許容。3年連続はNG。<br/>
+                ※ 大豆・小豆（マメ科）は北海道標準の3年間隔。<br/>
+                ※ 実際の判断はJAや普及センターにご確認ください。
+              </div>
+            </div>
+          </div>
+        )}
+        <div style={{height:24}} />
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

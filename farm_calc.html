@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="経営計算">
+<title>🌾 農業経営計算表</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: #f2f7f1; font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif; }
+  input, select, button { font-family: inherit; }
+  input[type=number]::-webkit-inner-spin-button { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useCallback } = React;
+const fmt = (n) => Math.round(n).toLocaleString("ja-JP");
+
+const DEFAULT_CROPS = [
+  { id:1, name:"ブロッコリー", area:20, revenuePerA:30000, costPerA:7000, unit:"株3,000×単価100円" },
+  { id:2, name:"長ネギ",       area:15, revenuePerA:9000,  costPerA:2500, unit:"7,500本×単価120円/10a" },
+  { id:3, name:"小麦",         area:145,revenuePerA:2000,  costPerA:1400, unit:"4t×5万円/ha" },
+  { id:4, name:"大豆",         area:81, revenuePerA:2000,  costPerA:1500, unit:"2.5t×8万円/ha" },
+  { id:5, name:"かぼちゃ",     area:0,  revenuePerA:2500,  costPerA:800,  unit:"1.2t×250円/kg" },
+];
+const DEFAULT_STAFF = [
+  { id:1, type:"パート", hourlyWage:1150, hoursPerDay:8, daysPerYear:60, label:"繁忙期パート" },
+  { id:2, type:"専従",   monthlyWage:250000, monthsPerYear:12, label:"常勤専従" },
+];
+const DEFAULT_SUBSIDY = 2000000;
+
+function NumInput({ value, onChange, min=0, step=1, suffix }) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:4}}>
+      <input type="number" value={value} min={min} step={step}
+        onChange={e => onChange(Number(e.target.value))}
+        style={{width:"100%",padding:"6px 8px",border:"1px solid #c8dfc5",borderRadius:6,
+          fontSize:14,background:"#f8fdf7",color:"#1a3a17",textAlign:"right"}} />
+      {suffix && <span style={{color:"#666",fontSize:12,whiteSpace:"nowrap"}}>{suffix}</span>}
+    </div>
+  );
+}
+
+function Card({ children, style={} }) {
+  return (
+    <div style={{background:"#fff",borderRadius:12,padding:16,marginBottom:12,
+      boxShadow:"0 2px 8px rgba(45,90,39,0.08)",border:"1px solid #e0eede",...style}}>
+      {children}
+    </div>
+  );
+}
+
+function Badge({ children, color="#2d5a27" }) {
+  return (
+    <span style={{display:"inline-block",padding:"2px 8px",borderRadius:20,
+      background:color+"18",color,fontSize:11,fontWeight:"bold",border:`1px solid ${color}40`}}>
+      {children}
+    </span>
+  );
+}
+
+function CropRow({ crop, onChange, onDelete }) {
+  const profit = (crop.revenuePerA - crop.costPerA) * crop.area;
+  const margin = crop.revenuePerA > 0 ? Math.round((1 - crop.costPerA / crop.revenuePerA) * 100) : 0;
+  return (
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <input value={crop.name} onChange={e => onChange({...crop,name:e.target.value})}
+          style={{fontWeight:"bold",fontSize:15,color:"#1a3a17",border:"none",
+            borderBottom:"1px dashed #c8dfc5",background:"transparent",width:"60%",padding:"2px 0"}} />
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <Badge color={margin>=30?"#2d5a27":margin>=20?"#8a7a00":"#a03020"}>利益率{margin}%</Badge>
+          <button onClick={onDelete}
+            style={{background:"none",border:"none",color:"#ccc",cursor:"pointer",fontSize:20,padding:"0 4px"}}>×</button>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+        <div>
+          <div style={{fontSize:11,color:"#888",marginBottom:3}}>作付面積 (a)</div>
+          <NumInput value={crop.area} onChange={v => onChange({...crop,area:v})} suffix="a" />
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#888",marginBottom:3}}>粗収益 (円/a)</div>
+          <NumInput value={crop.revenuePerA} onChange={v => onChange({...crop,revenuePerA:v})} suffix="円" step={100} />
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#888",marginBottom:3}}>コスト (円/a)</div>
+          <NumInput value={crop.costPerA} onChange={v => onChange({...crop,costPerA:v})} suffix="円" step={100} />
+        </div>
+        <div>
+          <div style={{fontSize:11,color:"#888",marginBottom:3}}>粗利合計</div>
+          <div style={{padding:"7px 8px",background:profit>=0?"#f0f9ee":"#fdf0ee",borderRadius:6,
+            fontSize:14,fontWeight:"bold",color:profit>=0?"#2d5a27":"#a03020",textAlign:"right"}}>
+            {fmt(profit)}円
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style={{fontSize:11,color:"#888",marginBottom:3}}>備考・単価根拠</div>
+        <input value={crop.unit} onChange={e => onChange({...crop,unit:e.target.value})}
+          style={{width:"100%",padding:"5px 8px",border:"1px solid #c8dfc5",borderRadius:6,
+            fontSize:12,color:"#666",background:"#fafffe",boxSizing:"border-box"}} />
+      </div>
+    </Card>
+  );
+}
+
+function StaffRow({ staff, onChange, onDelete }) {
+  const isP = staff.type === "パート";
+  const annualCost = isP
+    ? staff.hourlyWage * staff.hoursPerDay * staff.daysPerYear
+    : staff.monthlyWage * staff.monthsPerYear;
+  const socialIns = isP ? 0 : Math.round(annualCost * 0.155);
+  return (
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <input value={staff.label} onChange={e => onChange({...staff,label:e.target.value})}
+          style={{fontWeight:"bold",fontSize:15,color:"#1a3a17",border:"none",
+            borderBottom:"1px dashed #c8dfc5",background:"transparent",width:"60%",padding:"2px 0"}} />
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <Badge color={isP?"#1a5a8a":"#7a3a8a"}>{staff.type}</Badge>
+          <button onClick={onDelete}
+            style={{background:"none",border:"none",color:"#ccc",cursor:"pointer",fontSize:20,padding:"0 4px"}}>×</button>
+        </div>
+      </div>
+      {isP ? (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+          <div>
+            <div style={{fontSize:11,color:"#888",marginBottom:3}}>時給</div>
+            <NumInput value={staff.hourlyWage} onChange={v => onChange({...staff,hourlyWage:v})} suffix="円" step={50} />
+          </div>
+          <div>
+            <div style={{fontSize:11,color:"#888",marginBottom:3}}>1日</div>
+            <NumInput value={staff.hoursPerDay} onChange={v => onChange({...staff,hoursPerDay:v})} suffix="h" />
+          </div>
+          <div>
+            <div style={{fontSize:11,color:"#888",marginBottom:3}}>日数</div>
+            <NumInput value={staff.daysPerYear} onChange={v => onChange({...staff,daysPerYear:v})} suffix="日" />
+          </div>
+        </div>
+      ) : (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+          <div>
+            <div style={{fontSize:11,color:"#888",marginBottom:3}}>月給</div>
+            <NumInput value={staff.monthlyWage} onChange={v => onChange({...staff,monthlyWage:v})} suffix="円" step={10000} />
+          </div>
+          <div>
+            <div style={{fontSize:11,color:"#888",marginBottom:3}}>雇用月数</div>
+            <NumInput value={staff.monthsPerYear} onChange={v => onChange({...staff,monthsPerYear:v})} suffix="ヶ月" />
+          </div>
+        </div>
+      )}
+      <div style={{background:"#f8f0fe",borderRadius:8,padding:"8px 12px",
+        display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div>
+          <div style={{fontSize:11,color:"#888"}}>給与合計</div>
+          <div style={{fontWeight:"bold",color:"#7a3a8a",fontSize:14}}>{fmt(annualCost)}円/年</div>
+        </div>
+        {!isP && (
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:11,color:"#888"}}>社保込み実質コスト</div>
+            <div style={{fontWeight:"bold",color:"#a03060",fontSize:14}}>{fmt(annualCost+socialIns)}円/年</div>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function App() {
+  const [tab, setTab] = useState("crops");
+  const [crops, setCrops] = useState(DEFAULT_CROPS);
+  const [staff, setStaff] = useState(DEFAULT_STAFF);
+  const [subsidy, setSubsidy] = useState(DEFAULT_SUBSIDY);
+  const [ownerIncome, setOwnerIncome] = useState(7);
+  const [nextId, setNextId] = useState(10);
+
+  const totalCropProfit = crops.reduce((s,c) => s+(c.revenuePerA-c.costPerA)*c.area, 0);
+  const totalStaffCost = staff.reduce((s,p) => {
+    if (p.type==="パート") return s+p.hourlyWage*p.hoursPerDay*p.daysPerYear;
+    const a = p.monthlyWage*p.monthsPerYear;
+    return s+a+Math.round(a*0.155);
+  }, 0);
+  const totalIncome = totalCropProfit + subsidy - totalStaffCost;
+  const ownerTarget = ownerIncome * 1000000;
+  const surplus = totalIncome - ownerTarget;
+  const totalArea = crops.reduce((s,c) => s+c.area, 0);
+
+  const updateCrop = useCallback((id, updated) => setCrops(prev => prev.map(c => c.id===id?updated:c)), []);
+  const updateStaff = useCallback((id, updated) => setStaff(prev => prev.map(s => s.id===id?updated:s)), []);
+
+  const addCrop = () => {
+    setCrops([...crops,{id:nextId,name:"新しい作物",area:10,revenuePerA:20000,costPerA:8000,unit:""}]);
+    setNextId(nextId+1);
+  };
+  const addStaff = (type) => {
+    const base = type==="パート"
+      ? {type:"パート",hourlyWage:1150,hoursPerDay:8,daysPerYear:30,label:"パート"}
+      : {type:"専従",monthlyWage:250000,monthsPerYear:12,label:"常勤専従"};
+    setStaff([...staff,{id:nextId,...base}]);
+    setNextId(nextId+1);
+  };
+
+  const tabs = [{id:"crops",label:"🌿 作物"},{id:"staff",label:"👤 人件費"},{id:"settings",label:"⚙️ 設定"}];
+
+  return (
+    <div style={{fontFamily:"'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif",
+      background:"#f2f7f1",minHeight:"100vh",maxWidth:480,margin:"0 auto"}}>
+
+      {/* ヘッダー */}
+      <div style={{background:"linear-gradient(135deg,#1a3a17 0%,#2d5a27 60%,#3d7a35 100%)",
+        padding:"20px 16px 16px",color:"#fff"}}>
+        <div style={{fontSize:11,letterSpacing:2,opacity:0.7,marginBottom:4}}>農業経営シミュレーター</div>
+        <div style={{fontSize:22,fontWeight:"bold",marginBottom:12}}>🌾 経営計算表</div>
+        <div style={{background:"rgba(255,255,255,0.12)",borderRadius:12,padding:14,
+          display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:10,opacity:0.7,marginBottom:2}}>作物粗利合計</div>
+            <div style={{fontSize:18,fontWeight:"bold"}}>{fmt(totalCropProfit)}円</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,opacity:0.7,marginBottom:2}}>人件費合計</div>
+            <div style={{fontSize:18,fontWeight:"bold",color:"#ffa0a0"}}>△{fmt(totalStaffCost)}円</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,opacity:0.7,marginBottom:2}}>補助金・交付金</div>
+            <div style={{fontSize:18,fontWeight:"bold",color:"#a0e0ff"}}>+{fmt(subsidy)}円</div>
+          </div>
+          <div>
+            <div style={{fontSize:10,opacity:0.7,marginBottom:2}}>夫婦手取り試算</div>
+            <div style={{fontSize:18,fontWeight:"bold",color:totalIncome>=ownerTarget?"#90ff90":"#ffb060"}}>
+              {fmt(totalIncome)}円
+            </div>
+          </div>
+        </div>
+        <div style={{marginTop:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,opacity:0.8,marginBottom:4}}>
+            <span>目標達成度（目標：{ownerIncome*100}万円）</span>
+            <span style={{color:surplus>=0?"#90ff90":"#ffb060"}}>
+              {surplus>=0?`+${fmt(surplus)}円`:`△${fmt(Math.abs(surplus))}円`}
+            </span>
+          </div>
+          <div style={{background:"rgba(255,255,255,0.2)",borderRadius:20,height:8,overflow:"hidden"}}>
+            <div style={{width:`${Math.min(100,Math.max(0,(totalIncome/ownerTarget)*100))}%`,
+              height:"100%",borderRadius:20,
+              background:totalIncome>=ownerTarget?"linear-gradient(90deg,#90ff90,#40c040)":"linear-gradient(90deg,#ffb060,#ff8020)",
+              transition:"width 0.5s ease"}} />
+          </div>
+        </div>
+      </div>
+
+      {/* タブ + コンテンツ */}
+      <div style={{padding:16}}>
+        <div style={{display:"flex",borderBottom:"2px solid #2d5a27",marginBottom:20}}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{flex:1,padding:"10px 4px",border:"none",
+                background:tab===t.id?"#2d5a27":"transparent",
+                color:tab===t.id?"#fff":"#2d5a27",fontWeight:"bold",fontSize:13,cursor:"pointer",
+                borderRadius:tab===t.id?"6px 6px 0 0":0}}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* 作物タブ */}
+        {tab==="crops" && (
+          <div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+              <div style={{fontSize:12,color:"#666"}}>
+                総面積 <strong>{(totalArea/10).toFixed(1)}ha</strong>（{totalArea}a）
+              </div>
+              <button onClick={addCrop}
+                style={{background:"#2d5a27",color:"#fff",border:"none",borderRadius:20,
+                  padding:"6px 14px",fontSize:13,cursor:"pointer",fontWeight:"bold"}}>
+                ＋ 作物追加
+              </button>
+            </div>
+            {crops.map(crop => (
+              <CropRow key={crop.id} crop={crop}
+                onChange={u => updateCrop(crop.id,u)}
+                onDelete={() => setCrops(crops.filter(c => c.id!==crop.id))} />
+            ))}
+            <Card style={{background:"#f0f9ee",border:"2px solid #2d5a27"}}>
+              <div style={{fontSize:13,fontWeight:"bold",color:"#2d5a27",marginBottom:10}}>作物合計</div>
+              {crops.map(c => {
+                const p = (c.revenuePerA-c.costPerA)*c.area;
+                return (
+                  <div key={c.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,
+                    padding:"4px 0",borderBottom:"1px solid #d0e8cc"}}>
+                    <span style={{color:"#444"}}>{c.name}（{c.area}a）</span>
+                    <span style={{fontWeight:"bold",color:p>=0?"#2d5a27":"#a03020"}}>{fmt(p)}円</span>
+                  </div>
+                );
+              })}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:8,
+                fontSize:16,fontWeight:"bold",color:"#1a3a17"}}>
+                <span>粗利合計</span><span>{fmt(totalCropProfit)}円</span>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* 人件費タブ */}
+        {tab==="staff" && (
+          <div>
+            <div style={{display:"flex",gap:8,marginBottom:12}}>
+              <button onClick={() => addStaff("パート")}
+                style={{flex:1,background:"#1a5a8a",color:"#fff",border:"none",borderRadius:20,
+                  padding:8,fontSize:13,cursor:"pointer",fontWeight:"bold"}}>
+                ＋ パート追加
+              </button>
+              <button onClick={() => addStaff("専従")}
+                style={{flex:1,background:"#7a3a8a",color:"#fff",border:"none",borderRadius:20,
+                  padding:8,fontSize:13,cursor:"pointer",fontWeight:"bold"}}>
+                ＋ 専従追加
+              </button>
+            </div>
+            {staff.map(s => (
+              <StaffRow key={s.id} staff={s}
+                onChange={u => updateStaff(s.id,u)}
+                onDelete={() => setStaff(staff.filter(x => x.id!==s.id))} />
+            ))}
+            <Card style={{background:"#fdf0fe",border:"2px solid #7a3a8a"}}>
+              <div style={{fontSize:13,fontWeight:"bold",color:"#7a3a8a",marginBottom:8}}>人件費合計</div>
+              {staff.map(s => {
+                const isP = s.type==="パート";
+                const cost = isP
+                  ? s.hourlyWage*s.hoursPerDay*s.daysPerYear
+                  : s.monthlyWage*s.monthsPerYear*1.155;
+                return (
+                  <div key={s.id} style={{display:"flex",justifyContent:"space-between",fontSize:13,
+                    padding:"4px 0",borderBottom:"1px solid #e0c8e8"}}>
+                    <span style={{color:"#444"}}>{s.label}</span>
+                    <span style={{fontWeight:"bold",color:"#7a3a8a"}}>△{fmt(cost)}円</span>
+                  </div>
+                );
+              })}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:8,
+                fontSize:16,fontWeight:"bold",color:"#a03060"}}>
+                <span>合計コスト</span><span>△{fmt(totalStaffCost)}円</span>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* 設定タブ */}
+        {tab==="settings" && (
+          <div>
+            <Card>
+              <div style={{fontSize:14,fontWeight:"bold",color:"#1a3a17",marginBottom:12}}>
+                🌾 補助金・交付金
+              </div>
+              <div style={{fontSize:11,color:"#888",marginBottom:6}}>経営所得安定対策交付金など（円/年）</div>
+              <NumInput value={subsidy} onChange={setSubsidy} step={10000} suffix="円/年" />
+            </Card>
+            <Card>
+              <div style={{fontSize:14,fontWeight:"bold",color:"#1a3a17",marginBottom:12}}>
+                🎯 目標手取り（夫婦合計）
+              </div>
+              <div style={{fontSize:11,color:"#888",marginBottom:6}}>100万円単位で設定</div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <input type="range" min={3} max={15} step={1} value={ownerIncome}
+                  onChange={e => setOwnerIncome(Number(e.target.value))}
+                  style={{flex:1,accentColor:"#2d5a27"}} />
+                <div style={{minWidth:70,textAlign:"center",fontWeight:"bold",fontSize:18,color:"#2d5a27"}}>
+                  {ownerIncome*100}万円
+                </div>
+              </div>
+            </Card>
+            <Card>
+              <div style={{fontSize:14,fontWeight:"bold",color:"#1a3a17",marginBottom:12}}>📊 損益サマリー</div>
+              {[
+                {label:"作物粗利合計",      value:totalCropProfit,             color:"#2d5a27"},
+                {label:"補助金・交付金",    value:subsidy,                     color:"#1a5a8a"},
+                {label:"人件費合計（実質）",value:-totalStaffCost,              color:"#a03060"},
+                {label:"夫婦手取り試算",    value:totalIncome,                  color:totalIncome>=ownerTarget?"#1a7a20":"#c05020", bold:true},
+                {label:"目標との差額",      value:surplus,                      color:surplus>=0?"#1a7a20":"#c05020", bold:true},
+              ].map(row => (
+                <div key={row.label} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                  padding:"8px 0",borderBottom:"1px solid #e8f0e8"}}>
+                  <span style={{fontSize:13,color:"#555"}}>{row.label}</span>
+                  <span style={{fontSize:row.bold?16:14,fontWeight:row.bold?"bold":"normal",color:row.color}}>
+                    {row.value>=0?"":"△"}{fmt(Math.abs(row.value))}円
+                  </span>
+                </div>
+              ))}
+            </Card>
+            <div style={{fontSize:11,color:"#999",textAlign:"center",marginTop:8,lineHeight:1.6}}>
+              ※ 専従の社会保険事業主負担は給与の15.5%で自動計算<br/>
+              ※ パートの社会保険は含まない（短期雇用想定）<br/>
+              ※ 機械減価償却はコスト欄に含めて入力してください
+            </div>
+          </div>
+        )}
+        <div style={{height:24}} />
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
